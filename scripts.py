@@ -22,10 +22,14 @@ class Production(object):
         self.body = body
 
     def __str__(self):
-        return '%s->%s' % (str(self.head), ''.join([str(s) for s in self.body]))
+        return '%s->%s' % (str(self.head), ''.join([str(s) for s in self]))
 
     def __repr__(self):
         return self.__str__()
+
+    def __getitem__(self, index):
+        '''Return the i-th symbol of the production body'''
+        return self.body[index]
 
 
 class NTerminal(Symbol):
@@ -44,74 +48,29 @@ class Grammar(object):
         self.START = None
         self.EPSILON = None
 
-    def __contains__(self, s):
-        return s in self.T or s in self.NT
-
-    def get_productions(self, s):
-        if s not in self.NT:
-            raise ValueError('"%s" is not a non-terminal.')
-        return self.NT[s].productions
-
-    def first(self):
-        result = {s:{t} for s, t in self.T.items()}
-
-        def recur(s):
-            if s in result:
-                return result[s]
-
-            result[s] = set()
-            for prod in self.NT[s].productions:
-                for sym in prod.body:
-                    sub = recur(str(sym))
-                    result[s] |= sub
-                    if self.EPSILON not in sub:
-                        break
-            return result[s]
-
-        for s, nt in self.NT.items():
-            recur(s)
-
-        return result
-
-    def follow(self):
-        pass
-
-    def nterminals(self):
-        return self.NT.values()
-
-    def terminals(self):
-        return self.T.values()
-
-    def productions(self):
-        return itertools.chain(*[nt.productions for nt in self.nterminals()])
-
 
 class GrammarBuilder(object):
-    def build(self, filename):
-        raw_productions = {}
+    def __init__(self, filename):
         with open(filename) as f:
-            start = f.readline().strip()
-            epsilon = f.readline().strip()
-            for l in f:
-                nts, *prods = l.split()
-                if nts not in raw_productions:
-                    raw_productions[nts] = []
-                raw_productions[nts] += prods
+            self.raw_lines = [line.strip() for line in f]
+
+    def pre_process(self):
+        raw_productions = {}
+
+        for l in self.raw_lines[2:]:
+            nts, *prods = l.split()
+            if nts not in raw_productions:
+                raw_productions[nts] = []
+            raw_productions[nts] += prods
 
         self.raw_productions = raw_productions
-        self.tempd = {}
-        start = self.handle(start)
 
-        g = Grammar()
-        g.START = start
-        g.EPSILON = epsilon
-        g.NT = {s:obj for s, obj in self.tempd.items() if s in self.raw_productions}
-        g.T = {s:obj for s, obj in self.tempd.items() if s not in self.raw_productions}
-        return g
+    def is_NT(self, s):
+        return s in self.raw_productions
 
     def handle(self, s):
         if s not in self.tempd:
-            if s in self.raw_productions:
+            if self.is_NT(s):
                 nt = self.tempd[s] = NTerminal(s)
                 for prods in self.raw_productions[s]:
                     nt.add_production(*[self.handle(c) for c in prods])
@@ -119,17 +78,71 @@ class GrammarBuilder(object):
                 self.tempd[s] = Terminal(s)
         return self.tempd[s]
 
+    def symbolize(self):
+        self.tempd = {}
+        starts, epsilons = self.raw_lines[:2]
+        self.EPSILON = self.handle(epsilons)
+        self.START = self.handle(starts)
+
+    def symbols(self):
+        return self.tempd.values()
+
+    def productions(self):
+        return itertools.chain(*[sym.productions for sym in self.symbols() if self.is_NT(str(sym))])
+
+    def build(self):
+
+        self.pre_process()
+        self.symbolize()
+
+        firstd = {}
+
+        def derive_epsilon(sym):
+            return self.EPSILON in firstd[str(sym)]
+
+        def calculate_first(sym):
+            '''Calculate the first set of sym and set firstd[str(sym)]'''
+            result = firstd.setdefault(str(sym), set())
+            if not result:
+                if self.is_NT(str(sym)):
+                    for prod in sym.productions:
+                        for subsym in prod:
+                            result |= calculate_first(subsym)
+                            if derive_epsilon(subsym):
+                                break
+                else:
+                    result |= {sym}
+            return result
+        # Calculate first set for each non-terminal
+        for sym in self.symbols():
+            if self.is_NT(str(sym)):
+                calculate_first(sym)
+
+        print("FIRST SET:",firstd)
+        print("PRODUCTIONS LIST:", list(self.productions()))
+
+        depend = {s:[] for s in self.tempd}
+        # TODO CALCULATE FOLLOW SET
+        for prod in self.productions():
+            pass
+
+
+        g = Grammar()
+        g.START = self.START
+        g.EPSILON = self.EPSILON
+        g.NT = {s:obj for s, obj in self.tempd.items() if self.is_NT(s)}
+        g.T = {s:obj for s, obj in self.tempd.items() if not self.is_NT(s)}
+        return g
+
+
 
 def main():
-    g = GrammarBuilder().build('grammar.txt')
-    print(g.START)
-    print(g.terminals())
-    print(g.nterminals())
-    print(g.T)
-    print(g.NT)
-    print(g.EPSILON)
-    print(list(g.productions()))
-    print(g.first())
+    g = GrammarBuilder('grammar.txt').build()
+    print('START:',g.START)
+    print('EPSILON:',g.EPSILON)
+    print('TERMINALS:',g.T)
+    print('NTERMINALS:',g.NT)
+    #print(g.first())
 
 
 
