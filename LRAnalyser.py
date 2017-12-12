@@ -10,11 +10,10 @@ class Item(object):
         self.pos = pos
 
     def pending(self):
-        '''Return the symbol after the dot notation'''
+        """Return the symbol after the dot notation"""
         return self.prod[self.pos] if self.pos < len(self.prod) else None
 
     def shift(self):
-        # TODO Handle the case where A->e generates only A->@
         return Item(self.prod, self.pos+1)
 
     def __str__(self):

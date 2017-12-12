@@ -39,7 +39,8 @@ class Production(object):
         return '%s(\'%s\')' % (self.__class__.__name__, self.__str__())
 
     def __getitem__(self, index):
-        '''Return the i-th symbol of the production body'''
+        """Return the i-th symbol of the production body"""
+
         return self.body[index]
 
     def __len__(self):
@@ -81,19 +82,20 @@ class Grammar(object):
         return self.T.values()
 
     def productions(self):
-        return chain(*[sym.productions for sym in self.NT.values()])
+        # TODO Add list()
+        return list(chain(*[sym.productions for sym in self.NT.values()]))
 
 
 class GrammarBuilder(object):
     def __init__(self, *prods, **kwargs):
-        self.starts = kwargs.pop('start', 'S')
-        self.epsilons = kwargs.pop('epsilon', 'e')
+        self.raw_start = kwargs.pop('start', 'S')
+        self.raw_epsilon = kwargs.pop('epsilon', 'e')
 
         if not prods:
             try:
                 filename = kwargs.pop('filename')
             except KeyError:
-                raise ValueError('No production strings or filename found.')
+                raise ValueError('No productions or filename found.')
             with open(filename) as f:
                 self.raw_lines = [line.strip() for line in f]
         else:
@@ -113,33 +115,29 @@ class GrammarBuilder(object):
         if s not in self.tempd:
             if self.is_NT(s):
                 nt = self.tempd[s] = NTerminal(s)
-                for prods in self.raw_productions[s]:
-                    p = nt.create_production(*[self.symbol(c) for c in prods])
-                    if self.EPSILON in p:
+                for raw_prod in self.raw_productions[s]:
+                    if raw_prod == self.raw_epsilon:
                         nt.derive_epsilon = True
+                        body = []
+                    else:
+                        body = [self.symbol(c) for c in raw_prod]
+                    nt.create_production(*body)
             else:
                 self.tempd[s] = Terminal(s)
         return self.tempd[s]
 
-    @utils.Debug.print(names=['START', 'EPSILON'], meths=['nterminals', 'terminals', 'productions'])
+    @utils.Debug.print(names=['START'], meths=['nterminals', 'terminals', 'productions'])
     def build(self):
         self.tempd = {}
-
         self.pre_process()
-
-        self.EPSILON = self.symbol(self.epsilons)
-        self.START = self.symbol(self.starts)
+        self.symbol(self.raw_start)
 
         g = Grammar()
-        g.START = self.START
-        g.EPSILON = self.EPSILON
+        g.START = self.tempd[self.raw_start]
         g.NT = {s:obj for s, obj in self.tempd.items() if self.is_NT(s)}
         g.T = {s:obj for s, obj in self.tempd.items() if not self.is_NT(s)}
 
-        print(list(g.productions()))
-
         return g
-
 
 
 def main():
