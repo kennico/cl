@@ -10,7 +10,7 @@ class Item(object):
         self.pos = pos
 
     def pending(self):
-        '''Return the symbol after the dot notation'''
+        """Return the symbol after the dot notation"""
         return self.prod[self.pos] if self.pos < len(self.prod) else None
 
     def shift(self):
