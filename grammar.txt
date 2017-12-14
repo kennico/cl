@@ -1,7 +1,0 @@
-S   EA
-A   +EA e
-E   TB
-B   TB e
-T   DC
-C   * e
-D   (S) a b c d

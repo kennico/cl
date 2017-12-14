@@ -1,10 +1,12 @@
 from itertools import chain
 from collections import defaultdict
 
-import utils
+import re
+import debug
 
 
 class Symbol(object):
+
     def __init__(self, s):
         self.string = s
 
@@ -17,7 +19,11 @@ class Symbol(object):
     def __eq__(self, other):
         if isinstance(other, Symbol):
             return self.string == other.string
-        return False
+        else:
+            return False
+
+    def __hash__(self):
+        return hash(self.string)
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -28,6 +34,7 @@ class Terminal(Symbol):
 
 
 class Production(object):
+
     def __init__(self, head, *body):
         self.head = head
         self.body = body
@@ -39,7 +46,7 @@ class Production(object):
         return '%s(\'%s\')' % (self.__class__.__name__, self.__str__())
 
     def __getitem__(self, index):
-        """Return the i-th symbol of the production body"""
+        """Return the i-th symbolize of the production body"""
 
         return self.body[index]
 
@@ -57,39 +64,58 @@ class Production(object):
 
 
 class NTerminal(Symbol):
+
     def __init__(self, s):
         super(NTerminal, self).__init__(s)
         self.productions = []
         self.derive_epsilon = None
 
     def create_production(self, *body):
+        """Create a production using the given symbols"""
+
         p = Production(self, *body)
         self.productions.append(p)
         return p
 
 
 class Grammar(object):
-    def __init__(self):
-        self.NT = None
-        self.T = None
-        self.START = None
-        self.EPSILON = None
+    """
+    The endmarker is considered as a terminal.
+    """
+
+    NT = None
+    T = None
+    START = None
+    END = None
 
     def nterminals(self):
+        """Return non-terminals"""
+
         return self.NT.values()
 
     def terminals(self):
+        """Return all the terminals."""
+
         return self.T.values()
 
     def productions(self):
-        # TODO Add list()
+        # TODO Remove list()
+
         return list(chain(*[sym.productions for sym in self.NT.values()]))
 
 
-class GrammarBuilder(object):
+class Builder(object):
+    """
+    Given the filename, start in string as keyword arguments:
+
+    >>> g = Builder(filename=test-LR0-input_0.txt0.txt', start='START').build()
+
+    If start is not specified then the left of the first production will be considered as the start symbol.
+    """
+
     def __init__(self, *prods, **kwargs):
         self.raw_start = kwargs.pop('start', 'S')
-        self.raw_epsilon = kwargs.pop('epsilon', 'e')
+        self.raw_endmarker = kwargs.pop('endmarker', '#')
 
         if not prods:
             try:
@@ -97,52 +123,73 @@ class GrammarBuilder(object):
             except KeyError:
                 raise ValueError('No productions or filename found.')
             with open(filename) as f:
-                self.raw_lines = [line.strip() for line in f]
+                self.raw_lines = f.read().splitlines()
         else:
             self.raw_lines = [line.strip() for line in prods]
 
-    def pre_process(self):
+    def preprocess(self):
+        # TODO Make it support the yacc format
+
         raw_productions = defaultdict(list)
-        for l in self.raw_lines:
-            nts, *prods = l.split()
-            raw_productions[nts] += prods
+
+        i = 0
+        while i < len(self.raw_lines):
+            prods = ''
+
+            while True:
+                prods += self.raw_lines[i]
+                i += 1
+                if prods.endswith(';'):
+                    break
+
+            nts, bodys = re.split(r'\s*:\s*', prods.strip('; '))
+
+            if not raw_productions:
+                self.raw_start = nts
+
+            for p in re.split(r'\s*\|\s*', bodys):
+                raw_productions[nts].append(p.split())
+
         self.raw_productions = raw_productions
 
-    def is_NT(self, s):
+    def is_NT_string(self, s):
+        """Check if the given string is a non-terminal"""
+
         return s in self.raw_productions
 
-    def symbol(self, s):
+    def symbolize(self, s):
+        """Convert a string into a grammar symbolize recursively"""
+
         if s not in self.tempd:
-            if self.is_NT(s):
-                nt = self.tempd[s] = NTerminal(s)
+            if self.is_NT_string(s):
+                sym = self.tempd[s] = NTerminal(s)
                 for raw_prod in self.raw_productions[s]:
-                    if raw_prod == self.raw_epsilon:
-                        nt.derive_epsilon = True
-                        body = []
-                    else:
-                        body = [self.symbol(c) for c in raw_prod]
-                    nt.create_production(*body)
+                    sym.create_production(*[self.symbolize(c) for c in raw_prod])
             else:
                 self.tempd[s] = Terminal(s)
         return self.tempd[s]
 
-    @utils.Debug.print(names=['START'], meths=['nterminals', 'terminals', 'productions'])
+    @debug.log_attr('START', 'END', 'NT', 'T', msg='Build Grammar')
     def build(self):
+        """Begin to build a grammar object which consists of symbolize objects"""
+
         self.tempd = {}
-        self.pre_process()
-        self.symbol(self.raw_start)
+        self.preprocess()
 
         g = Grammar()
-        g.START = self.tempd[self.raw_start]
-        g.NT = {s:obj for s, obj in self.tempd.items() if self.is_NT(s)}
-        g.T = {s:obj for s, obj in self.tempd.items() if not self.is_NT(s)}
+
+        g.START = self.symbolize(self.raw_start)
+        g.END = self.symbolize(self.raw_endmarker)
+
+        g.NT = {s:obj for s, obj in self.tempd.items() if self.is_NT_string(s)}
+        g.T = {s:obj for s, obj in self.tempd.items() if not self.is_NT_string(s)}
 
         return g
 
 
 def main():
-    g = GrammarBuilder(filename='grammar2.txt', start='S', epsilon='e').build()
 
+    g = Builder(filename='input/test-LR0-input_1', start='S').build()
 
 
 if __name__ == '__main__':

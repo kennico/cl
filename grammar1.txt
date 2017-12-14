@@ -1,3 +1,0 @@
-S AaS BbS d
-A a
-B e c

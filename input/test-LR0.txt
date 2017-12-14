@@ -1,0 +1,4 @@
+input/test-LR0-input_0.txt  b c c d
+input/test-LR0-input_1.txt  ( x , ( x ) )
+input/test-LR0-input_2.txt  i - ( i + i )
+input/test-LR0-input_2.txt  ( i + i ) + ( i + ( i + i ) )
