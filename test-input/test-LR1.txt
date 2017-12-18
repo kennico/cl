@@ -1,0 +1,1 @@
+test-input/test-LR1-input_1.txt         i + i * i

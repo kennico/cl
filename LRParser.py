@@ -1,209 +1,79 @@
-import grammar
 import debug
+import grammar
 
 from collections import deque
 
 
-DOT_NOTATION = '@'
+class AugmentedGrammarBuilder(grammar.GrammarBuilder):
+
+    @debug.log_attr(names=['START', 'END', 'NT', 'T', 'START_PROD'], msg='Build Augmented Grammar')
+    def build(self):
+        g = grammar.GrammarBuilder.build(self)
+        g.START_PROD = g.START.productions[0]
+
+        return g
 
 
-class Item(object):
-
-    def __init__(self, prod, pos):
-        self.prod = prod
-        self.pos = pos
-
-    def expected(self):
-        """Return the symbolize after the dot notation"""
-
-        return self.prod[self.pos] if self.pos < len(self.prod) else None
-
-    def __str__(self):
-        ss = [str(sym) for sym in self.prod]
-        ss.insert(self.pos, DOT_NOTATION)
-        return '%s->%s' % (self.prod.head, ''.join(ss))
-
-    def __repr__(self):
-        return '%s(\'%s\')' % (self.__class__.__name__, self.__str__())
-
-    # Both __hash__ and __eq__ are necessary for set
-    def __hash__(self):
-        return hash(self.__str__())
-
-    def __eq__(self, other):
-        if isinstance(other, Item):
-            return (self.prod == other.prod) and (self.pos == other.pos)
-        else:
-            return False
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-
-class ItemSet(object):
-    """Immutable item set"""
-    items = None
-
-    def pending(self):
-        return {t.expected() for t in self if t.expected()}
-
-    def __hash__(self):
-        return hash(self.items)
-
-    def __eq__(self, other):
-        if isinstance(other, ItemSet):
-            return self.items == other.items
-        else:
-            return False
+class BaseParseException(Exception):
+    def __init__(self, msg, errno):
+        self.msg = msg
+        self.errno = errno
 
     def __iter__(self):
-        return iter(self.items)
-
-    def __len__(self):
-        return self.items.__len__()
+        return iter((self.msg, self.errno))
 
 
-class _Closure(ItemSet):
-    """
-    Perform the e-closure operation on the given items in a BFS way.
-    """
-
-    def __init__(self, *items):
-        queue = deque(items)
-        result = set()
-        empty = ()
-
-        while queue:
-            front = queue.popleft()
-            result.add(front)
-
-            for prod in getattr(front.expected(), 'productions', empty):
-                temp = Item(prod, 0)
-                if temp not in result:
-                    queue.append(temp)
-
-        self.items = frozenset(result)
-
-
-def closure(*items, **kwargs):
-    """
-    Calculate the ItemSet from different manners.
-
-    Given multiple items:
-
-    >>> item1 = ...
-    >>> item2 = ...
-    >>> item3 = ...
-    >>> itemset = closure(item1, item2, item3)
-
-    Given a non-terminal by placing the dot notation before it:
-
-    >>> nt = ...
-    >>> itemset = closure(nt=nt)
-
-    Given an ItemSet and a symbolize in order to perform the goto function:
-
-    >>> src = ...
-    >>> a = ...
-    >>> itemset = closure(src=src, sym=a)
-    :param items:
-    :param kwargs:
-    :return:
-    """
-
-    nt = kwargs.get('nt', None)
-    nt_items = tuple(Item(prod, 0) for prod in nt.productions) if nt else ()
-
-    increase = lambda item: item.expected() and Item(item.prod, item.pos+1)
-    src = kwargs.get('src', None)
-    sym = kwargs.get('sym', None)
-    gt_items = tuple(increase(t) for t in src if t.expected() == sym) if src and sym else ()
-
-    return _Closure(*(items + nt_items + gt_items))
-
-
-class ParseError(Exception):
+class ParseError(BaseParseException):
     pass
 
 
-class ParseFinish(Exception):
+class ParseFinish(BaseParseException):
     pass
 
 
-class LR0Parser(object):
+class LRParser(object):
     """
     Apply to an augmented grammar which has only one production starts with the START symbol
     """
 
-    def __init__(self, grammar):
+    def __init__(self, aug_gram):
+        startset, action, goto = self.construct(aug_gram)
 
-        if len(grammar.START.productions) != 1:
-            raise ParseError('An augmented grammar is required.')
-
-        self.grammar = grammar
-        self.cal_collections()
-
-    def cal_collections(self):
-        """
-        Calculate canonical LR(0) collections in a BFS way.
-        :return:
-        """
-        action = {}
-        goto = {}
-
-        first = closure(nt=self.grammar.START)
-        known = {first}
-
-        que = deque(iterable=(first,))
-        while que:
-            curr = que.popleft()
-
-            for item in curr:
-                if item.expected():
-                    sym = item.expected()
-                    next = closure(src=curr, sym=sym)
-
-                    if next not in known:
-                        known.add(next)
-                        que.append(next)  # Append the next state to the queue
-
-                    if hasattr(sym, 'productions'):
-                        goto[(curr, sym)] = next  # For terminals,
-                    else:
-                        action[(curr, sym)] = (self.shift, next)  # For non-terminals,
-                else:
-                    # The item that leads to accepted state may be grouped with other items.
-                    # That means a combination such as {S->E@#, E->E@+T, E->E@-T} is also possible.
-
-                    if item.prod.head == self.grammar.START:  # For the accepted state
-                        action[(curr, self.grammar.END)] = (self.accept,)
-                    else:
-                        for sym in self.grammar.terminals():
-                            action[(curr, sym)] = (self.reduce, item.prod)
-
-        self.collections = known
-        self.first = first
+        self.startset = startset
         self.goto = goto
         self.action = action
 
-    def accept(self):
-        raise ParseFinish('Accepted.')
+    def construct(self, aug_gram):
+        """
+        Construct the LR analysis tables.
 
-    @debug.log_attr(msg='SHIFT')
+        :return: startset, action table and goto table
+        """
+        raise NotImplementedError
+
+    @debug.log_param(msg='ACCEPT')
+    def accept(self):
+        """
+        Raise a ParseFinish exception.
+
+        :return:
+        """
+
+        raise ParseFinish('Accepted.', 0)
+
+    @debug.log_param(msg='SHIFT')
     def shift(self, state):
         """
-        Shift a symbolize from self.input and push the state onto self.stack
+        Shift a symbol from self.test-input and push the state onto self.stack
 
         :param state:
         :return:
         """
-        sym = self.input.popleft()
-        self.stack.append((state, sym))
 
-        # TODO Return is of no use here but for debugging
-        return sym
+        self.input.popleft()
+        self.stack.append(state)
 
-    @debug.log_attr(msg='REDUCE')
+    @debug.log_param(names=['prod'], msg='REDUCE')
     def reduce(self, prod):
         """
         Reduce the prod.body on the top of self.stack to prod.head
@@ -213,55 +83,38 @@ class LR0Parser(object):
         """
 
         stack = self.stack[:-len(prod)]     # Pop states and symbols from the stack
-        curr, _ = stack[-1]
+        curr = stack[-1]
 
         try:
             next = self.goto[(curr, prod.head)]
         except KeyError:
-            raise ParseError('No such transition.')
+            raise ParseError('No such transition.', -1)
 
-        stack.append((next, prod.head))
+        stack.append(next)
         self.stack = stack      # Remember to assgin self.stack stack
 
-        # TODO Return is of no use here but for debugging
-        return prod
-
     def parse(self, symbols):
+        """
+        Should be fed a sequence of symbols with an endmarker.
+
+        :param symbols: an iterable objcect teminated with an endmarker
+        :return: a string msg and an int number, 0 for success
+        """
         self.input = deque(symbols)
-        self.input.append(self.grammar.END)
-        self.stack = [(self.first, self.grammar.END)]
+        self.stack = [self.startset]
 
         while True:
             try:
-                curr, _ = self.stack[-1]
+                curr = self.stack[-1]
                 sym = self.input[0]
 
-                action = self.action.get((curr, sym), None)
-                if not action:
-                    raise ParseError('No such action.')
+                action = self.action[(curr, sym)]
 
-                meth = action[0]
-                meth(*action[1:])
+                method = action[0]
+                method(*action[1:])
+            except (ParseError, ParseFinish) as e:
+                return e
+            except KeyError as e:
+                print(e)
+                raise ParseError('No such action.', -1)
 
-            except (ParseFinish, ParseError) as e:
-                print(repr(e))
-                break
-
-
-def test_LR0Parser():
-
-    with open('input/test-LR0.txt') as f:
-        inputs = [line.split() for line in f]
-
-    for index, arg in enumerate(inputs):
-        filename, *string = arg
-
-        print('Test %d:' % index)
-
-        g = grammar.Builder(filename=filename).build()
-        parser = LR0Parser(g)
-        parser.parse([g.T[c] for c in string])
-
-
-if __name__ == '__main__':
-    test_LR0Parser()

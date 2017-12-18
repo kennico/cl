@@ -1,8 +1,9 @@
 import grammar
-import LRParser
+
 
 
 class Lex(object):
+    # TODO Implement lexical analyser
     pass
 
 

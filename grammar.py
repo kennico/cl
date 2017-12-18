@@ -7,8 +7,8 @@ import debug
 
 class Symbol(object):
 
-    def __init__(self, s):
-        self.string = s
+    def __init__(self, string):
+        self.string = string
 
     def __str__(self):
         return self.string
@@ -34,10 +34,14 @@ class Terminal(Symbol):
 
 
 class Production(object):
+    """
+    For the production deriving an epsilon notation (e.g. S->e),
+    self.body is set to be an empty tuple.
+    """
 
-    def __init__(self, head, *body):
+    def __init__(self, head, *symbols):
         self.head = head
-        self.body = body
+        self.body = symbols
 
     def __str__(self):
         return '%s->%s' % (str(self.head), ''.join([str(s) for s in self]))
@@ -46,7 +50,9 @@ class Production(object):
         return '%s(\'%s\')' % (self.__class__.__name__, self.__str__())
 
     def __getitem__(self, index):
-        """Return the i-th symbolize of the production body"""
+        """
+        Return the i-th symbolize of the production body, making a production object iterable
+        """
 
         return self.body[index]
 
@@ -64,23 +70,29 @@ class Production(object):
 
 
 class NTerminal(Symbol):
+    """
+    Non-terminal class.
+    """
 
     def __init__(self, s):
         super(NTerminal, self).__init__(s)
         self.productions = []
-        self.derive_epsilon = None
 
-    def create_production(self, *body):
-        """Create a production using the given symbols"""
+    def create_production(self, *symbols):
+        """
+        Create a production using the given symbols.
+        If no symbol is passed, a production with an empty list is created.
+        That means the non-terminal derives epsilon.
+        """
 
-        p = Production(self, *body)
+        p = Production(self, *symbols)
         self.productions.append(p)
         return p
 
 
 class Grammar(object):
     """
-    The endmarker is considered as a terminal.
+    The endmarker is treated as a terminal while EPSILON is NOT treated as a grammar symbol.
     """
 
     NT = None
@@ -104,11 +116,11 @@ class Grammar(object):
         return list(chain(*[sym.productions for sym in self.NT.values()]))
 
 
-class Builder(object):
+class GrammarBuilder(object):
     """
     Given the filename, start in string as keyword arguments:
 
-    >>> g = Builder(filename=test-LR0-input_0.txt0.txt', start='START').build()
+    >>> g = GrammarBuilder(filename=test-input.txt', start='START').build()
 
     If start is not specified then the left of the first production will be considered as the start symbol.
     """
@@ -169,7 +181,7 @@ class Builder(object):
                 self.tempd[s] = Terminal(s)
         return self.tempd[s]
 
-    @debug.log_attr('START', 'END', 'NT', 'T', msg='Build Grammar')
+    @debug.log_attr(names=['START', 'END', 'NT', 'T'], msg='Build Grammar')
     def build(self):
         """Begin to build a grammar object which consists of symbolize objects"""
 
@@ -189,7 +201,7 @@ class Builder(object):
 
 def main():
 
-    g = Builder(filename='input/test-LR0-input_1', start='S').build()
+    g = GrammarBuilder(filename='test-input/test-LR0-input_1', start='S').build()
 
 
 if __name__ == '__main__':
