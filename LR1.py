@@ -133,21 +133,18 @@ class Parser(LRParser.LRParser):
 
 @debug.log_attr(msg='MAIN', log_obj=True)
 def main():
+    filename = './test-input/test-LR1-input_RE.txt'
+    g = LRParser.AugmentedGrammarBuilder(filename=filename).build()
+    parser = Parser(g)
 
-    with open('test-input/test-LR1.txt') as f:
-        inputs = [line.split() for line in f.read().splitlines()]
-
+    inputs = ['a(1a|2)+', '[ab]([ab]|[12])*', '[12ab]a+(a|b)']
     passed = 0
-    for index, arg in enumerate(inputs):
-        fn, *string = arg
 
-        print('Test %d:' % index)
-
-        g = LRParser.AugmentedGrammarBuilder(filename=fn).build()
-        parser = Parser(g)
+    for index, string in enumerate(inputs):
 
         symbols = [g.T[c] for c in string]
         symbols.append(g.END)
+
         try:
             msg, no = parser.parse(symbols)
             if no == 0:
@@ -155,8 +152,7 @@ def main():
         except Exception as e:
             print('-----ERROR-----Test: %d-----%s' % (index, repr(e)))
 
-    return 'Passed %d.' % passed
-
+    return 'Passed %d test.' % passed
 
 if __name__ == '__main__':
     main()
