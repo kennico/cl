@@ -1,107 +1,137 @@
+"""
+In a same ItemSet, items with different lookahead set should be merged into one item.
+"""
+
+import itertools
 import debug
+
+from collections import deque, defaultdict
 
 import LRParser
 import LR0
 import LL1
 
-from collections import deque
-
 
 class Item(LR0.Item):
 
     def __init__(self, prod, pos, lookahead):
-        super(Item, self).__init__(prod, pos)
-        self.lookahead = lookahead
+        assert lookahead
+        super(Item, self).__init__(prod , pos)
+        self.lookahead = frozenset(lookahead)
+
+    def __key_data(self):
+        return self.prod, self.pos, self.lookahead
 
     def __str__(self):
         return '%s, %s' % (LR0.Item.__str__(self), '/'.join(map(str, self.lookahead)))
 
     def rear(self):
         """
-        Calling on A->a@BCDe returns symbols [CDe].
 
-        If the dot notation has reached the end, an empty list will be returned.
-
-        :return: symbols following the symbol one next to the dot notation
+        :return:
         """
 
         return self.prod[self.pos+1:]
 
-    def __hash__(self):
-        return hash(self.__str__())
 
-    def __eq__(self, other):
-        if isinstance(other, Item):
-            return LR0.Item.__eq__(self, other) and self.lookahead == other.lookahead
-        else:
-            return False
-
-
-class Operation(LR0.Operation):
+class Operation(LR0.Operation, LL1.Operation):
     """
     Build LR(1) item set.
     """
 
-    def __init__(self, grammar):
-        self.LL1 = LL1.Operation(grammar)
-
     def pending(self, item):
         symbols = item.rear()
-        lookahead = self.LL1.first(seq=symbols)
 
-        if self.LL1.derive_epsilon(seq=symbols):
+        lookahead = self.first(seq=symbols)
+
+        if self.derive_epsilon(seq=symbols):
             lookahead |= item.lookahead
 
-        productions = getattr(item.expected(), 'productions', ())
-        return [Item(prod, 0, lookahead) for prod in productions]
+        productions = getattr(item.expect(), 'productions', ())
 
-    pending.__doc__ = LR0.Operation.pending.__doc__
+        return map(lambda prod: Item(prod, 0, lookahead), productions)
 
     def advance(self, item):
+
         return Item(item.prod, item.pos+1, item.lookahead)
-    advance.__doc__ = LR0.Operation.advance.__doc__
+
+    def eclosure(self, *items, iterable=()):
+        """
+        Perform the epsilon operation.
+
+        :param items:
+        :param iterable:
+        :return:
+        """
+
+        # queue consist of items
+        queue = deque(itertools.chain(items, iterable))
+        # use the (prod, pos) as key, set of symbols as value
+        seen = defaultdict(set)
+
+        while queue:
+            curr = queue.popleft()
+            # Merge different set of symbols with the same (prod, pos)
+            seen[curr.raw_tuple()] |= curr.lookahead
+
+            for next in self.pending(curr):
+
+                known = seen.get(next.raw_tuple(), None)
+
+                if not known or not known.issuperset(next.lookahead):
+                    queue.append(next)
+
+        return LR0.ItemSet(map(lambda kv: Item(*kv[0], kv[1]), seen.items()))
 
 
-class Parser(LR0.Parser):
+class Parser(LRParser.LRParser):
 
     def construct(self, aug_gram):
 
-        action = {}
-        goto = {}
-
-        op = Operation(aug_gram)
+        op = Operation()
         start = op.eclosure(Item(aug_gram.START_PROD, 0, {aug_gram.END}))
         states = {start}
 
         que = deque(iterable=(start,))
         while que:
+
             curr = que.popleft()
+            states.add(curr)
+
+            seen = set()  # Record the symbols checked following dot notation in one ItemSet
 
             for item in curr:
-                if item.expected():
-                    sym = item.expected()
-                    next = op.goto(curr, sym)
+
+                symbol = item.expect()
+
+                if not symbol:
+                    # The item that leads to accepted state may be grouped together with other items.
+                    # That means a combination such as {S->E@#, E->E@+T, E->E@-T} is also possible.
+
+                    if item.prod == aug_gram.START_PROD:  # For the accepted state
+                        self.setaction(curr, aug_gram.END, self.accept)
+                    else:
+                        for symbol in item.lookahead:
+                            self.setaction(curr, symbol, self.reduce, item.prod)
+
+                elif symbol not in seen:
+
+                    seen.add(symbol)
+                    next = op.goto(curr, symbol)
 
                     if next not in states:
                         states.add(next)
                         que.append(next)  # Append the next state to the queue
 
-                    if hasattr(sym, 'productions'):
-                        goto[(curr, sym)] = next  # For terminals,
+                    if hasattr(symbol, 'productions'):
+                        self.setgoto(curr, symbol, next)  # For terminals,
                     else:
-                        action[(curr, sym)] = (self.shift, next)  # For non-terminals,
-                else:
+                        self.setaction(curr, symbol, self.shift, next)  # For non-terminals,
 
-                    if item.prod.head == aug_gram.START:  # For the accepted state
-                        action[(curr, aug_gram.END)] = (self.accept,)
-                    else:
-                        for sym in item.lookahead:
-                            action[(curr, sym)] = (self.reduce, item.prod)
-        self.states = states
-        return start, action, goto
+        return start
 
 
-@debug.log_attr(msg='MAIN')
+@debug.log_attr(msg='MAIN', log_obj=True)
 def main():
 
     with open('test-input/test-LR1.txt') as f:

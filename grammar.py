@@ -56,6 +56,9 @@ class Production(object):
 
         return self.body[index]
 
+    def __hash__(self):
+        return hash(self.__str__())
+
     def __len__(self):
         return self.body.__len__()
 
@@ -118,15 +121,15 @@ class Grammar(object):
 
 class GrammarBuilder(object):
     """
-    Given the filename, start in string as keyword arguments:
+    Given the filename, index in string as keyword arguments:
 
-    >>> g = GrammarBuilder(filename=test-input.txt', start='START').build()
+    >>> g = GrammarBuilder(filename='test-input.txt').build()
 
-    If start is not specified then the left of the first production will be considered as the start symbol.
+    If index is not specified then the left of the first production will be considered as the index symbol.
     """
 
     def __init__(self, *prods, **kwargs):
-        self.raw_start = kwargs.pop('start', 'S')
+        self.raw_start = kwargs.pop('index', 'S')
         self.raw_endmarker = kwargs.pop('endmarker', '#')
 
         if not prods:
@@ -159,8 +162,8 @@ class GrammarBuilder(object):
             if not raw_productions:
                 self.raw_start = nts
 
-            for p in re.split(r'\s*\|\s*', bodys):
-                raw_productions[nts].append(p.split())
+            for p in re.split(r'\s+\|\s+', bodys):
+                raw_productions[nts].append([s.strip('"') for s in p.split()])
 
         self.raw_productions = raw_productions
 

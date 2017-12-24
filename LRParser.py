@@ -6,7 +6,7 @@ from collections import deque
 
 class AugmentedGrammarBuilder(grammar.GrammarBuilder):
 
-    @debug.log_attr(names=['START', 'END', 'NT', 'T', 'START_PROD'], msg='Build Augmented Grammar')
+    @debug.log_attr(names=['START_PROD'], msg='Build Augmented Grammar')
     def build(self):
         g = grammar.GrammarBuilder.build(self)
         g.START_PROD = g.START.productions[0]
@@ -37,17 +37,55 @@ class LRParser(object):
     """
 
     def __init__(self, aug_gram):
-        startset, action, goto = self.construct(aug_gram)
+        self.goto = {}
+        self.action = {}
+        self.startset = self.construct(aug_gram)
 
-        self.startset = startset
-        self.goto = goto
-        self.action = action
+    def setaction(self, state, sym, func, *args):
+        """
+        Set action on (state, sym). If conflict found, an error will be raised.
+
+        :param state:
+        :param sym:
+        :param func:
+        :param args:
+        :return:
+        """
+
+        k = (state, sym)
+        v = (func, args)
+
+        found = self.action.get(k, None)
+
+        if found and found != v:
+            raise ParseError('Conflict found', -1)
+
+        self.action[k] = v
+
+    def setgoto(self, state, sym, next):
+        """
+        Set action on (state, sym). If conflict found, an error will be raised.
+
+        :param state:
+        :param sym:
+        :param next:
+        :return:
+        """
+        k = (state, sym)
+
+        found = self.goto.get(k, None)
+
+        if found and found != next:
+            raise ParseError('Conflict found', -1)
+
+        self.goto[k] = next
 
     def construct(self, aug_gram):
         """
         Construct the LR analysis tables.
 
-        :return: startset, action table and goto table
+        :param aug_gram:
+        :return:
         """
         raise NotImplementedError
 
@@ -91,11 +129,12 @@ class LRParser(object):
             raise ParseError('No such transition.', -1)
 
         stack.append(next)
-        self.stack = stack      # Remember to assgin self.stack stack
+        self.stack = stack      # Remember to assign self.stack stack
 
+    @debug.log_param(msg='PARSE BEGIN')
     def parse(self, symbols):
         """
-        Should be fed a sequence of symbols with an endmarker.
+        Should be fed a symbols sequence terminated with an endmarker.
 
         :param symbols: an iterable objcect teminated with an endmarker
         :return: a string msg and an int number, 0 for success
@@ -111,10 +150,9 @@ class LRParser(object):
                 action = self.action[(curr, sym)]
 
                 method = action[0]
-                method(*action[1:])
+                method(*action[1])
+            except KeyError as e:
+                raise ParseError('No such action.', -1)
             except (ParseError, ParseFinish) as e:
                 return e
-            except KeyError as e:
-                print(e)
-                raise ParseError('No such action.', -1)
 

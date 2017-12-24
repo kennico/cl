@@ -1,8 +1,7 @@
-from collections import defaultdict
 from functools import wraps
 
 
-def log_attr(names=(), msg=''):
+def log_attr(names=(), msg='', log_obj=False):
     """
     Log attributes of the return object of the decorated function.
     """
@@ -12,15 +11,17 @@ def log_attr(names=(), msg=''):
 
             print('MESSAGE: ' + msg)
 
-            obj = func(*args, **kwargs)
+            retobj = func(*args, **kwargs)
+            if log_obj:
+                print(retobj)
             for name in names:
                 try:
-                    attr = getattr(obj, name)
+                    attr = getattr(retobj, name)
                     print('ATTRIBUTE -%s- : %s' % (name, repr(attr)))
                 except Exception as e:
                     print(repr(e))
 
-            return obj
+            return retobj
 
         return unnamed
     return decorate
@@ -52,7 +53,7 @@ def log_param(names=(), msg=''):
 
             for k in names:
                 if k in params:
-                    print(str(params[k]))
+                    print('%s: %s' % (k, str(params[k])))
 
             # Execute wrapped (decorated) function:
             out = func(*fn_args, **fn_kwargs)

@@ -1,1 +1,1 @@
-test-input/test-LR1-input_1.txt         i + i * i
+test-input/test-LR1-input_RE.txt        [ a b ] ( [ a b ] | [ 1 2 ] ) *

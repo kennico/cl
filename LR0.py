@@ -13,12 +13,29 @@ class Item(object):
         self.prod = prod
         self.pos = pos
 
-    def expected(self):
+    def expect(self):
         """Return the symbolize after the dot notation"""
 
         return self.prod[self.pos] if self.pos < len(self.prod) else None
 
+    def __key_data(self):
+        """
+
+        :return: object to be used in __hash__ and __eq__
+        """
+
+        return self.raw_tuple()
+
+    def raw_tuple(self):
+        """
+
+        :return: (prod, pos)
+        """
+
+        return self.prod, self.pos
+
     def __str__(self):
+
         ss = [str(sym) for sym in self.prod]
         ss.insert(self.pos, DOT)
         return '%s->%s' % (self.prod.head, ''.join(ss))
@@ -28,13 +45,10 @@ class Item(object):
 
     # Both __hash__ and __eq__ are necessary for set
     def __hash__(self):
-        return hash(self.__str__())
+        return hash(self.__key_data())
 
     def __eq__(self, other):
-        if isinstance(other, Item):
-            return self.prod == other.prod and self.pos == other.pos
-        else:
-            return False
+        return isinstance(other, Item) and self.__key_data() == other.__key_data()
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -48,12 +62,13 @@ class ItemSet(object):
     # TODO Shall I make it a subclass of frozenset?
     def __init__(self, iterable):
         """
-        Construct the LR item set.
 
         :param iterable:
         """
 
         self.items = frozenset(iterable)
+        #     chain(map(lambda args: item_class(*args), args_list), iterable)
+        # )
 
     def __hash__(self):
         """
@@ -74,6 +89,9 @@ class ItemSet(object):
         else:
             return False
 
+    def __contains__(self, item):
+        return item in self.items
+
     def __iter__(self):
         return iter(self.items)
 
@@ -86,11 +104,10 @@ class Operation(object):
     Build LR(0) item set.
     """
 
-    # TODO Is it necessary to return None when dot notation has reached the end?
     def pending(self, item):
         """
         Construct a collection of items by placing the dot notation at the
-        beginning of every production which starts with item.expected().
+        beginning of every production which starts with item.expect().
 
         If B->b|c|d, calling on A->a@B returns {B->@b, B->@c, B->@d}.
 
@@ -98,7 +115,7 @@ class Operation(object):
         :return: the items constructed DIRECTLY from the non-terminal
         """
 
-        return [Item(prod, 0) for prod in getattr(item.expected(), 'productions', ())]
+        return [Item(prod, 0) for prod in getattr(item.expect(), 'productions', ())]
 
     def advance(self, item):
         """
@@ -108,7 +125,8 @@ class Operation(object):
         :param item:
         :return: item
         """
-        return item.expected() and Item(item.prod, item.pos + 1)
+
+        return item.expect() and Item(item.prod, item.pos + 1)
 
     def eclosure(self, *items, iterable=()):
         """
@@ -142,51 +160,54 @@ class Operation(object):
         :return: item set
         """
 
-        return self.eclosure(iterable=[self.advance(t) for t in src if t.expected() == sym])
+        return self.eclosure(iterable=[self.advance(t) for t in src if t.expect() == sym])
 
 
 class Parser(LRParser.LRParser):
 
     def construct(self, aug_gram):
 
-        action = {}
-        goto = {}
-
         op = Operation()
         start = op.eclosure(Item(aug_gram.START_PROD, 0))
-        states = {start}
+        states = set()
 
         que = deque(iterable=(start,))
+
         while que:
+
             curr = que.popleft()
+            states.add(curr)
+
+            seen = set()
 
             for item in curr:
-                if item.expected():
-                    sym = item.expected()
-                    next = op.goto(curr, sym)
 
-                    if next not in states:
-                        states.add(next)
-                        que.append(next)  # Append the next state to the queue
+                symbol = item.expect()
 
-                    if hasattr(sym, 'productions'):
-                        goto[(curr, sym)] = next  # For terminals,
-                    else:
-                        action[(curr, sym)] = (self.shift, next)  # For non-terminals,
-                else:
+                if not symbol:
                     # The item that leads to accepted state may be grouped together with other items.
                     # That means a combination such as {S->E@#, E->E@+T, E->E@-T} is also possible.
 
-                    if item.prod.head == aug_gram.START:  # For the accepted state
-                        action[(curr, aug_gram.END)] = (self.accept,)
+                    if item.prod == aug_gram.START_PROD:  # For the accepted state
+                        self.setaction(curr, aug_gram.END, self.accept)
                     else:
-                        # Reduce/Reduce or Shift/Reduce conflict found.
-                        if len(curr) > 1:
-                            raise LRParser.ParseError('Conflict found.', -1)
-                        for sym in aug_gram.terminals():
-                            action[(curr, sym)] = (self.reduce, item.prod)
+                        for symbol in aug_gram.terminals():
+                            self.setaction(curr, symbol, self.reduce, item.prod)
 
-        return start, action, goto
+                elif symbol not in seen:
+
+                    seen.add(symbol)
+                    next = op.goto(curr, symbol)
+
+                    if next not in states:
+                        que.append(next)  # Append the next state to the queue
+
+                    if hasattr(symbol, 'productions'):
+                        self.setgoto(curr, symbol, next)  # For terminals,
+                    else:
+                        self.setaction(curr, symbol, self.shift, next) # For non-terminals,
+
+        return start
 
 
 @debug.log_attr(msg='MAIN')
@@ -211,7 +232,7 @@ def main():
         if no == 0:
             passed += 1
 
-    return 'Passed %d.' % passed
+    print('Passed %d.' % passed)
 
 
 if __name__ == '__main__':
